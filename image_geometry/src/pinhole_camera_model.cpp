@@ -189,7 +189,7 @@ bool PinholeCameraModel::fromCameraInfo(const sensor_msgs::CameraInfo& msg)
   // Figure out how to handle the distortion
   if (cam_info_.distortion_model == sensor_msgs::distortion_models::PLUMB_BOB ||
       cam_info_.distortion_model == sensor_msgs::distortion_models::RATIONAL_POLYNOMIAL ||
-      cam_info_.distortion_model == "fisheye") {
+      cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE) {
     // If any distortion coefficient is non-zero, then need to apply the distortion
     cache_->distortion_state = NONE;
     for (size_t i = 0; i < cam_info_.D.size(); ++i)
@@ -356,7 +356,7 @@ void PinholeCameraModel::rectifyImage(const cv::Mat& raw, cv::Mat& rectified, in
       break;
     case CALIBRATED:
       initRectificationMaps();
-      if (cam_info_.distortion_model == "fisheye") {
+      if (cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE) {
         cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, cv::INTER_LINEAR, cv::BORDER_CONSTANT, 0);
       } else {
         if (raw.depth() == CV_32F || raw.depth() == CV_64F)
@@ -509,7 +509,7 @@ void PinholeCameraModel::initRectificationMaps() const
       }
     }
 
-    if (cam_info_.distortion_model == "fisheye") {
+    if (cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE) {
       cache_->full_map1.create(cam_info_.height, cam_info_.width, CV_32FC1);
       cache_->full_map2.create(cam_info_.height, cam_info_.width, CV_32FC1);
       ComputeWarpMapsToRectifyFisheyeImage(cam_info_, &(cache_->full_map1), &(cache_->full_map2));
