@@ -4,6 +4,62 @@
 #include <boost/make_shared.hpp>
 #endif
 
+namespace {
+// Compute fisheye distorted coordinates from undistorted coordinates.
+// The distortion model used by the Tango fisheye camera is called FOV and is
+// described in 'Straight lines have to be straight' by Frederic Devernay and
+// Olivier Faugeras. See https://hal.inria.fr/inria-00267247/document.
+void ApplyFovModel(
+    double xu, double yu, double w, double w_inverse, double two_tan_w_div_two,
+    double* xd, double* yd) {
+  double ru = sqrt(xu * xu + yu * yu);
+  const double epsilon = 1e-7;
+  if (w < epsilon || ru < epsilon) {
+    *xd = xu;
+    *yd = yu ;
+  } else {
+    double rd_div_ru = std::atan(ru * two_tan_w_div_two) * w_inverse / ru;
+    *xd = xu * rd_div_ru;
+    *yd = yu * rd_div_ru;
+  }
+}
+// Compute the warp maps to undistort the Tango fisheye image using the FOV
+// model. See OpenCV documentation for more information on warp maps:
+// http://docs.opencv.org/2.4/modules/imgproc/doc/geometric_transformations.html
+// @param fisheye_camera_info the fisheye camera intrinsics.
+// @param cv_warp_map_x the output map for the x direction.
+// @param cv_warp_map_y the output map for the y direction.
+void ComputeWarpMapsToRectifyFisheyeImage(
+    const sensor_msgs::CameraInfo& fisheye_camera_info,
+    cv::Mat* cv_warp_map_x, cv::Mat* cv_warp_map_y) {
+  const double fx = fisheye_camera_info.K[0];
+  const double fy = fisheye_camera_info.K[4];
+  const double cx = fisheye_camera_info.K[2];
+  const double cy = fisheye_camera_info.K[5];
+  const double w = fisheye_camera_info.D[0];
+  // Pre-computed variables for more efficiency.
+  const double fy_inverse = 1.0 / fy;
+  const double fx_inverse = 1.0 / fx;
+  const double w_inverse = 1 / w;
+  const double two_tan_w_div_two = 2.0 * std::tan(w * 0.5);
+  // Compute warp maps in x and y directions.
+  // OpenCV expects maps from dest to src, i.e. from undistorted to distorted
+  // pixel coordinates.
+  for(int iu = 0; iu < fisheye_camera_info.height; ++iu) {
+    for (int ju = 0; ju < fisheye_camera_info.width; ++ju) {
+      double xu = (ju - cx) * fx_inverse;
+      double yu = (iu - cy) * fy_inverse;
+      double xd, yd;
+      ApplyFovModel(xu, yu, w, w_inverse, two_tan_w_div_two, &xd, &yd);
+      double jd = cx + xd * fx;
+      double id = cy + yd * fy;
+      cv_warp_map_x->at<float>(iu, ju) = jd;
+      cv_warp_map_y->at<float>(iu, ju) = id;
+    }
+  }
+}
+} // namespace
+
 namespace image_geometry {
 
 enum DistortionState { NONE, CALIBRATED, UNKNOWN };
@@ -132,7 +188,8 @@ bool PinholeCameraModel::fromCameraInfo(const sensor_msgs::CameraInfo& msg)
 
   // Figure out how to handle the distortion
   if (cam_info_.distortion_model == sensor_msgs::distortion_models::PLUMB_BOB ||
-      cam_info_.distortion_model == sensor_msgs::distortion_models::RATIONAL_POLYNOMIAL) {
+      cam_info_.distortion_model == sensor_msgs::distortion_models::RATIONAL_POLYNOMIAL ||
+      cam_info_.distortion_model == "fisheye") {
     // If any distortion coefficient is non-zero, then need to apply the distortion
     cache_->distortion_state = NONE;
     for (size_t i = 0; i < cam_info_.D.size(); ++i)
@@ -187,7 +244,6 @@ bool PinholeCameraModel::fromCameraInfo(const sensor_msgs::CameraInfo& msg)
       P_(1,3) *= scale_y;
     }
   }
-
   return reduced_dirty;
 }
 
@@ -253,7 +309,7 @@ cv::Rect PinholeCameraModel::rawRoi() const
 cv::Rect PinholeCameraModel::rectifiedRoi() const
 {
   assert( initialized() );
-  
+
   if (cache_->rectified_roi_dirty)
   {
     if (!cam_info_.roi.do_rectify)
@@ -300,12 +356,16 @@ void PinholeCameraModel::rectifyImage(const cv::Mat& raw, cv::Mat& rectified, in
       break;
     case CALIBRATED:
       initRectificationMaps();
-      if (raw.depth() == CV_32F || raw.depth() == CV_64F)
-      {
-        cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation, cv::BORDER_CONSTANT, std::numeric_limits<float>::quiet_NaN());
-      }
-      else {
-        cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation);
+      if (cam_info_.distortion_model == "fisheye") {
+        cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, cv::INTER_LINEAR, cv::BORDER_CONSTANT, 0);
+      } else {
+        if (raw.depth() == CV_32F || raw.depth() == CV_64F)
+        {
+          cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation, cv::BORDER_CONSTANT,   std::numeric_limits<float>::quiet_NaN());
+        }
+        else {
+          cv::remap(raw, rectified, cache_->reduced_map1, cache_->reduced_map2, interpolation);
+        }
       }
       break;
     default:
@@ -373,7 +433,7 @@ cv::Rect PinholeCameraModel::rectifyRoi(const cv::Rect& roi_raw) const
   assert( initialized() );
 
   /// @todo Actually implement "best fit" as described by REP 104.
-  
+
   // For now, just unrectify the four corners and take the bounding box.
   cv::Point2d rect_tl = rectifyPoint(cv::Point2d(roi_raw.x, roi_raw.y));
   cv::Point2d rect_tr = rectifyPoint(cv::Point2d(roi_raw.x + roi_raw.width, roi_raw.y));
@@ -394,7 +454,7 @@ cv::Rect PinholeCameraModel::unrectifyRoi(const cv::Rect& roi_rect) const
   assert( initialized() );
 
   /// @todo Actually implement "best fit" as described by REP 104.
-  
+
   // For now, just unrectify the four corners and take the bounding box.
   cv::Point2d raw_tl = unrectifyPoint(cv::Point2d(roi_rect.x, roi_rect.y));
   cv::Point2d raw_tr = unrectifyPoint(cv::Point2d(roi_rect.x + roi_rect.width, roi_rect.y));
@@ -414,7 +474,7 @@ void PinholeCameraModel::initRectificationMaps() const
 {
   /// @todo For large binning settings, can drop extra rows/cols at bottom/right boundary.
   /// Make sure we're handling that 100% correctly.
-  
+
   if (cache_->full_maps_dirty) {
     // Create the full-size map at the binned resolution
     /// @todo Should binned resolution, K, P be part of public API?
@@ -448,10 +508,16 @@ void PinholeCameraModel::initRectificationMaps() const
         P_binned(1,3) *= scale_y;
       }
     }
-    
-    // Note: m1type=CV_16SC2 to use fast fixed-point maps (see cv::remap)
-    cv::initUndistortRectifyMap(K_binned, D_, R_, P_binned, binned_resolution,
-                                CV_16SC2, cache_->full_map1, cache_->full_map2);
+
+    if (cam_info_.distortion_model == "fisheye") {
+      cache_->full_map1.create(cam_info_.height, cam_info_.width, CV_32FC1);
+      cache_->full_map2.create(cam_info_.height, cam_info_.width, CV_32FC1);
+      ComputeWarpMapsToRectifyFisheyeImage(cam_info_, &(cache_->full_map1), &(cache_->full_map2));
+    } else {
+      // Note: m1type=CV_16SC2 to use fast fixed-point maps (see cv::remap)
+      cv::initUndistortRectifyMap(K_binned, D_, R_, P_binned, binned_resolution,
+                                  CV_16SC2, cache_->full_map1, cache_->full_map2);
+    }
     cache_->full_maps_dirty = false;
   }
 
