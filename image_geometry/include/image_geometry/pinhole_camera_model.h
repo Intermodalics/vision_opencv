@@ -23,7 +23,7 @@ public:
 class PinholeCameraModel
 {
 public:
-  static const std::string DISTORTION_MODEL_FISHEYE = "fisheye"
+  static const std::string DISTORTION_MODEL_FISHEYE;
 
   PinholeCameraModel();
 
