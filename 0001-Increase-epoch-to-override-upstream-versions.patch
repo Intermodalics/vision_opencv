@@ -1,0 +1,22 @@
+From 2c2920f46240af28df3be3ca03ef9c1f69d34cf5 Mon Sep 17 00:00:00 2001
+From: Johannes Meyer <johannes@intermodalics.eu>
+Date: Mon, 10 Dec 2018 14:41:26 +0100
+Subject: [PATCH] Increase epoch to override upstream versions
+
+---
+ debian/changelog.em | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/debian/changelog.em b/debian/changelog.em
+index 3585909..51b28fb 100644
+--- a/debian/changelog.em
++++ b/debian/changelog.em
+@@ -1,4 +1,4 @@
+-@[for change_version, change_date, changelog, main_name, main_email in changelogs]@(Package) (@(change_version)@(DebianInc)@(Distribution)) @(Distribution); urgency=high
++@[for change_version, change_date, changelog, main_name, main_email in changelogs]@(Package) (2:@(change_version)@(DebianInc)@(Distribution)-intermodalics) @(Distribution); urgency=high
+ 
+ @(changelog)
+ 
+-- 
+2.7.4
+
