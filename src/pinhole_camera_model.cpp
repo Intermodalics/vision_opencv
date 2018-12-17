@@ -62,7 +62,8 @@ void initFisheyeUndistortRectifyMap(
 
 namespace image_geometry {
 
-const std::string PinholeCameraModel::DISTORTION_MODEL_FISHEYE = "fisheye";
+const std::string DISTORTION_MODEL_FISHEYE_FOV = "fisheye_fov";
+const std::string DISTORTION_MODEL_FISHEYE_CV = "fisheye_cv";
 
 enum DistortionState { NONE, CALIBRATED, UNKNOWN };
 
@@ -191,7 +192,8 @@ bool PinholeCameraModel::fromCameraInfo(const sensor_msgs::CameraInfo& msg)
   // Figure out how to handle the distortion
   if (cam_info_.distortion_model == sensor_msgs::distortion_models::PLUMB_BOB ||
       cam_info_.distortion_model == sensor_msgs::distortion_models::RATIONAL_POLYNOMIAL ||
-      cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE) {
+      cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE_FOV ||
+      cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE_CV) {
     // If any distortion coefficient is non-zero, then need to apply the distortion
     cache_->distortion_state = NONE;
     for (size_t i = 0; i < cam_info_.D.size(); ++i)
@@ -507,10 +509,13 @@ void PinholeCameraModel::initRectificationMaps() const
       }
     }
 
-    if (cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE) {
+    if (cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE_FOV) {
       cache_->full_map1.create(cam_info_.height, cam_info_.width, CV_32FC1);
       cache_->full_map2.create(cam_info_.height, cam_info_.width, CV_32FC1);
       initFisheyeUndistortRectifyMap(cam_info_, &(cache_->full_map1), &(cache_->full_map2));
+    } else if (cam_info_.distortion_model == DISTORTION_MODEL_FISHEYE_CV) {
+      cv::fisheye::initUndistortRectifyMap(K_binned, D_, R_, P_binned, binned_resolution,
+                                           CV_16SC2, cache_->full_map1, cache_->full_map2);
     } else {
       // Note: m1type=CV_16SC2 to use fast fixed-point maps (see cv::remap)
       cv::initUndistortRectifyMap(K_binned, D_, R_, P_binned, binned_resolution,
