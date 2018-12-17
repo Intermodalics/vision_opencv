@@ -214,7 +214,7 @@ public:
    * \brief Returns the number of rows in each bin.
    */
   uint32_t binningY() const;
-  
+
   /**
    * \brief Compute delta u, given Z and delta X in Cartesian space.
    *
