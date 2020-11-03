@@ -2,11 +2,11 @@
 #define IMAGE_GEOMETRY_PINHOLE_CAMERA_MODEL_H
 
 #include <sensor_msgs/CameraInfo.h>
-#include <opencv2/core/core.hpp>
+#include <opencv2/core/mat.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/calib3d/calib3d.hpp>
 #include <stdexcept>
 #include <string>
+#include "exports.h"
 
 namespace image_geometry {
 
@@ -20,7 +20,7 @@ public:
  * \brief Simplifies interpreting images geometrically using the parameters from
  * sensor_msgs/CameraInfo.
  */
-class PinholeCameraModel
+class IMAGE_GEOMETRY_DECL PinholeCameraModel
 {
 public:
 
